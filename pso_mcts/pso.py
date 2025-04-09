@@ -225,6 +225,8 @@ class ParticleSwarmOptimization:
             'iteration_avg': []
         }
     
+
+
     def optimize(self) -> Tuple[List[Tuple[str, Rectangle]], float]:
         """
         运行PSO优化算法。
@@ -235,6 +237,13 @@ class ParticleSwarmOptimization:
         if self.verbose:
             print("开始PSO优化房间尺寸...")
         
+        # 重置历史记录
+        self.history = {
+            'global_best': [],
+            'iteration_best': [],
+            'iteration_avg': []
+        }
+        
         # 初始化：评估所有粒子，找到全局最佳
         for particle in self.particles:
             fitness = particle.evaluate(self.fitness_func)
@@ -244,7 +253,14 @@ class ParticleSwarmOptimization:
                 self.global_best_position = particle.position.copy()
                 self.global_best_room_sizes = particle.get_room_sizes()
         
+        # 记录初始状态
+        initial_fitness_values = [p.best_fitness for p in self.particles]
+        initial_avg = sum(initial_fitness_values) / len(initial_fitness_values)
+        initial_best = max(initial_fitness_values)
+        
         self.history['global_best'].append(self.global_best_fitness)
+        self.history['iteration_best'].append(initial_best)
+        self.history['iteration_avg'].append(initial_avg)
         
         # PSO迭代优化
         for iteration in range(self.max_iterations):
@@ -280,15 +296,15 @@ class ParticleSwarmOptimization:
             # 打印优化进度
             if self.verbose and (iteration + 1) % 5 == 0:
                 print(f"迭代 {iteration + 1}/{self.max_iterations}: "
-                      f"全局最佳={self.global_best_fitness:.2f}, "
-                      f"迭代最佳={iteration_best_fitness:.2f}, "
-                      f"迭代平均={iteration_avg_fitness:.2f}")
+                    f"全局最佳={self.global_best_fitness:.2f}, "
+                    f"迭代最佳={iteration_best_fitness:.2f}, "
+                    f"迭代平均={iteration_avg_fitness:.2f}")
             
             # 检查早停（如果连续多次没有改进，提前结束）
             early_stop = False
             if len(self.history['global_best']) > 10:
                 recent_best = self.history['global_best'][-10:]
-                if len(set(recent_best)) == 1:  # 连续10次迭代没有改进
+                if len(set([round(x, 4) for x in recent_best])) == 1:  # 连续10次迭代没有改进
                     early_stop = True
             
             if early_stop:
@@ -299,8 +315,9 @@ class ParticleSwarmOptimization:
         if self.verbose:
             print(f"PSO优化完成，最佳适应度={self.global_best_fitness:.2f}")
         
-        return self.global_best_room_sizes, self.global_best_fitness
-    
+        return self.global_best_room_sizes, self.global_best_fitness    
+
+
     def get_best_room_sizes(self) -> List[Tuple[str, Rectangle]]:
         """获取优化后的最佳房间尺寸。"""
         return self.global_best_room_sizes

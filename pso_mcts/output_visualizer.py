@@ -27,7 +27,17 @@ class OutputVisualizer:
         self.output_dir = output_dir
         self.dpi = dpi
         self.figsize = figsize
-        
+
+        try:
+            import matplotlib.font_manager as fm
+            # 尝试使用系统字体
+            plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'SimSun', 'Arial Unicode MS', 'DejaVu Sans']
+            plt.rcParams['axes.unicode_minus'] = False  # 解决负号显示问题
+        except:
+            # 如果没有合适的中文字体，使用英文标题
+            self.use_english = True
+            print("注意: 未找到支持中文的字体，将使用英文标题")
+
         # 创建输出目录
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
@@ -223,11 +233,25 @@ class OutputVisualizer:
         """
         plt.figure(figsize=(10, 6), dpi=self.dpi)
         
-        iterations = range(len(history['global_best']))
+        # 确保所有数据长度一致
+        min_length = min(len(history.get('global_best', [])), 
+                        len(history.get('iteration_best', [])), 
+                        len(history.get('iteration_avg', [])))
         
-        plt.plot(iterations, history['global_best'], 'r-', label='Global Best')
-        plt.plot(iterations, history['iteration_best'], 'g--', label='Iteration Best')
-        plt.plot(iterations, history['iteration_avg'], 'b-.', label='Iteration Average')
+        if min_length == 0:
+            print("警告: PSO历史数据为空，无法绘制收敛图")
+            return
+        
+        iterations = range(min_length)
+        
+        if 'global_best' in history and len(history['global_best']) >= min_length:
+            plt.plot(iterations, history['global_best'][:min_length], 'r-', label='Global Best')
+        
+        if 'iteration_best' in history and len(history['iteration_best']) >= min_length:
+            plt.plot(iterations, history['iteration_best'][:min_length], 'g--', label='Iteration Best')
+        
+        if 'iteration_avg' in history and len(history['iteration_avg']) >= min_length:
+            plt.plot(iterations, history['iteration_avg'][:min_length], 'b-.', label='Iteration Average')
         
         plt.title('PSO Convergence History')
         plt.xlabel('Iteration')

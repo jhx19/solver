@@ -286,13 +286,30 @@ class MonteCarloTreeSearch:
         
         # 随机放置剩余房间
         simulation_rooms = placed_rooms.copy()
+        
         for room_type, rect in remaining_rooms:
-            # 生成有效位置
-            valid_positions = self._generate_valid_positions(simulation_rooms, room_type, rect)
+            # 最多尝试20次找位置
+            max_attempts = 20
+            valid_positions = []
+            
+            for _ in range(max_attempts):
+                # 生成有效位置
+                valid_positions = self._generate_valid_positions(simulation_rooms, room_type, rect)
+                
+                if valid_positions:
+                    break
+                    
+                # 如果找不到位置，随机移除一个已放置的非核心房间再尝试
+                if simulation_rooms and len(simulation_rooms) > 2:
+                    # 排除living_room(通常是第一个放置的核心房间)
+                    removable_rooms = [r for r in simulation_rooms 
+                                    if r.room_type != 'living_room' and r.room_type != 'master_bedroom']
+                    if removable_rooms:
+                        simulation_rooms.remove(random.choice(removable_rooms))
             
             if not valid_positions:
-                # 无法放置所有房间，布局无效
-                return 0.0
+                # 如果实在找不到位置，给这次模拟一个很低的分数
+                return 0.1  # 不设为0，避免MCTS完全放弃这个分支
             
             # 随机选择一个位置
             x, y = random.choice(valid_positions)
@@ -306,8 +323,8 @@ class MonteCarloTreeSearch:
         layout = Layout(simulation_rooms, self.boundary)
         score = self.evaluator.evaluate(layout)
         
-        return score
-    
+        return score    
+
     def _backpropagate(self, node: MCTSNode, result: float) -> None:
         """
         回溯阶段：从当前节点开始，更新所有祖先节点的统计信息。
@@ -341,10 +358,11 @@ class MonteCarloTreeSearch:
         # 反转列表，使其从第一个放置的房间开始
         return rooms[::-1]
     
+
     def _generate_valid_positions(self, 
-                                placed_rooms: List[Room], 
-                                next_room_type: str, 
-                                next_room_rect: Rectangle) -> List[Tuple[float, float]]:
+                            placed_rooms: List[Room], 
+                            next_room_type: str, 
+                            next_room_rect: Rectangle) -> List[Tuple[float, float]]:
         """
         生成下一个房间的有效位置列表，使用节点剪枝方法减少搜索空间。
         
@@ -365,15 +383,21 @@ class MonteCarloTreeSearch:
         # 创建可能位置的网格点（按尺寸模数对齐）
         grid_positions = []
         for x in range(int(self.boundary.x), 
-                     int(self.boundary.x + self.boundary.width - next_room_rect.width) + 1, 
-                     int(self.size_modulus)):
+                    int(self.boundary.x + self.boundary.width - next_room_rect.width) + 1, 
+                    int(self.size_modulus)):
             for y in range(int(self.boundary.y), 
-                         int(self.boundary.y + self.boundary.height - next_room_rect.height) + 1, 
-                         int(self.size_modulus)):
+                        int(self.boundary.y + self.boundary.height - next_room_rect.height) + 1, 
+                        int(self.size_modulus)):
                 grid_positions.append((x, y))
         
         # 应用剪枝规则，筛选有效位置
         valid_positions = []
+        
+        # 如果还没有放置任何房间，返回所有可能位置的10%样本（随机）
+        if not placed_rooms and len(grid_positions) > 10:
+            return random.sample(grid_positions, min(len(grid_positions) // 10 + 1, 50))
+        
+        # 检查每个可能位置
         for x, y in grid_positions:
             temp_rect = Rectangle(x, y, next_room_rect.width, next_room_rect.height)
             temp_room = Room(next_room_type, temp_rect)
@@ -382,8 +406,28 @@ class MonteCarloTreeSearch:
             if self._is_valid_position(temp_room, placed_rooms, constraint):
                 valid_positions.append((x, y))
         
+        # 如果没有找到有效位置，放宽条件（仅检查重叠和边界）
+        if not valid_positions:
+            print(f"找不到满足全部约束的位置，放宽条件尝试放置 {next_room_type}")
+            
+            for x, y in grid_positions:
+                temp_rect = Rectangle(x, y, next_room_rect.width, next_room_rect.height)
+                temp_room = Room(next_room_type, temp_rect)
+                
+                # 只检查基本约束（在边界内且不重叠）
+                if (self._is_inside_boundary(temp_rect) and 
+                    not any(self._has_overlap(temp_rect, r.rectangle) for r in placed_rooms)):
+                    valid_positions.append((x, y))
+        
+        # 如果有多于50个有效位置，随机选择50个减少计算量
+        if len(valid_positions) > 50:
+            return random.sample(valid_positions, 50)
+        
+        # 如果仍然找不到位置，记录错误
+        if not valid_positions:
+            print(f"警告: 无法为 {next_room_type} 找到有效位置")
+        
         return valid_positions
-    
     def _is_valid_position(self, room: Room, placed_rooms: List[Room], constraint: Constraint) -> bool:
         """
         检查位置是否有效，实现节点剪枝规则。
@@ -455,7 +499,34 @@ class MonteCarloTreeSearch:
                     return True
         
         return False
-    
+    def _check_adjacency(self, room: Room, placed_rooms: List[Room], required_connections: List[str]) -> bool:
+        """
+        检查相邻关系约束，至少要与其中一个需要相邻的房间相邻。
+        
+        如果需要相邻的房间类型还未放置，则不进行检查。
+        """
+        # 检查已放置的房间类型列表
+        placed_types = [room.room_type for room in placed_rooms]
+        
+        # 需要相邻的房间类型中，已放置的类型
+        required_placed_types = [t for t in required_connections if t in placed_types]
+        
+        # 如果没有需要相邻的已放置房间，则跳过检查
+        if not required_placed_types:
+            return True
+        
+        # 检查是否与至少一个需要相邻的房间相邻
+        for placed_room in placed_rooms:
+            if placed_room.room_type in required_connections:
+                if room.is_adjacent_to(placed_room):
+                    return True
+        
+        # 如果已放置的房间较少（<=2），即使不满足相邻约束也允许放置
+        # 这有助于解决初始布局难题
+        if len(placed_rooms) <= 2:
+            return True
+            
+        return False    
     def _check_orientation(self, room: Room, orientation: str) -> bool:
         """检查房间是否满足朝向要求。"""
         # 判断房间是否靠近对应朝向的边界
@@ -529,3 +600,56 @@ class MonteCarloTreeSearch:
         
         # 创建布局
         return Layout(rooms, self.boundary)
+    def search(self) -> Layout:
+        """
+        执行MCTS搜索，寻找最佳房间布局。
+        
+        Returns:
+            最佳布局
+        """
+        total_rooms = len(self.room_sizes)
+        
+        # 用于存储中间结果
+        intermediate_layouts = []
+        best_score_so_far = 0
+        
+        # 执行指定次数的模拟
+        for i in range(self.max_simulations):
+            # 1. 选择阶段：选择最有价值的节点进行扩展
+            node = self._select(self.root, total_rooms)
+            
+            # 2. 扩展阶段：为选中的节点添加一个新的子节点
+            if not node.is_terminal(total_rooms):
+                node = self._expand(node)
+            
+            # 3. 模拟阶段：从新节点开始，随机完成剩余布局，并评估
+            result = self._simulate(node, total_rooms)
+            
+            # 4. 回溯阶段：更新节点统计信息
+            self._backpropagate(node, result)
+            
+            # 定期保存中间结果(每100次模拟或得分更好时)
+            if (i + 1) % 100 == 0 or i == 0:
+                current_layout = self._get_best_layout()
+                current_score = self.evaluator.evaluate(current_layout)
+                
+                print(f"MCTS进度: {i+1}/{self.max_simulations} 模拟次数, 当前最佳评分: {current_score:.2f}")
+                
+                # 如果当前布局比之前的更好，保存它
+                if current_score > best_score_so_far:
+                    best_score_so_far = current_score
+                    intermediate_layouts.append((i+1, current_layout, current_score))
+                    
+                    # 可选：保存到文件或可视化
+                    print(f"  发现更好的布局! 评分: {current_score:.2f}, 房间数: {len(current_layout.rooms)}")
+                    for room in current_layout.rooms:
+                        print(f"    {room.room_type}: ({room.rectangle.x/1000:.2f}m, {room.rectangle.y/1000:.2f}m), "
+                            f"{room.rectangle.width/1000:.2f}m x {room.rectangle.height/1000:.2f}m")
+        
+        # 返回找到的最佳布局
+        best_layout = self._get_best_layout()
+        
+        # 保存中间结果供后续分析
+        self.intermediate_results = intermediate_layouts
+        
+        return best_layout

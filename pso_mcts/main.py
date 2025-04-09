@@ -193,6 +193,25 @@ def run_floor_layout_generation(
         title="最佳住宅户型布局",
         show=show_visualizations
     )
+    # 可视化中间结果（如果有）
+    if hasattr(mcts, 'intermediate_results') and mcts.intermediate_results:
+        print(f"发现 {len(mcts.intermediate_results)} 个中间布局结果")
+        
+        # 最多可视化5个中间结果
+        show_count = min(5, len(mcts.intermediate_results))
+        selected_results = [mcts.intermediate_results[i] for i in range(0, len(mcts.intermediate_results), 
+                                                                    max(1, len(mcts.intermediate_results)//show_count))]
+        
+        for idx, (iteration, layout, score) in enumerate(selected_results):
+            print(f"可视化中间布局 {idx+1}/{len(selected_results)}: 迭代 {iteration}, 评分 {score:.2f}")
+            visualizer.visualize_layout(
+                layout=layout,
+                window_facades=window_facades,
+                entrance=entrance,
+                title=f"中间布局 (迭代 {iteration}, 评分 {score:.2f})",
+                show=show_visualizations,
+                save=True
+            )
     
     # 可视化PSO收敛历史
     visualizer.visualize_pso_convergence(
@@ -226,7 +245,7 @@ def parse_arguments():
     parser.add_argument(
         "--boundary_file", 
         type=str, 
-        default="input_examples\polygon_boundary.json",
+        default=r"input_examples\rectangle_boundary.json",
         help="户型边界信息文件路径"
     )
     
@@ -240,14 +259,14 @@ def parse_arguments():
     parser.add_argument(
         "--num_particles", 
         type=int, 
-        default=20,
+        default=50,
         help="PSO粒子数量"
     )
     
     parser.add_argument(
         "--pso_iterations", 
         type=int, 
-        default=50,
+        default=100,
         help="PSO最大迭代次数"
     )
     

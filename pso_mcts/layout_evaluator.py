@@ -65,7 +65,7 @@ class LayoutEvaluator:
         total_score = hard_constraint_score * 100 + soft_constraints_score * 100
         
         return total_score
-    
+
     def _evaluate_hard_constraints(self, layout: Layout) -> float:
         """
         评价硬约束，满足返回1.0，不满足返回0.0。
@@ -78,18 +78,33 @@ class LayoutEvaluator:
         for i, room1 in enumerate(layout.rooms[:-1]):
             for room2 in layout.rooms[i+1:]:
                 if room1.rectangle.intersects(room2.rectangle):
-                    return 0.0
+                    # 允许微小重叠（小于300mm²）
+                    overlap_area = room1.rectangle.intersection_area(room2.rectangle)
+                    if overlap_area > 300 * 300:  # 大于300x300 mm²
+                        print(f"布局无效: {room1.room_type}与{room2.room_type}重叠，面积:{overlap_area/1000000:.2f}m²")
+                        return 0.0
         
         # 2. 检查是否所有房间都在边界内
         for room in layout.rooms:
             if not self._is_room_inside_boundary(room, layout):
+                print(f"布局无效: {room.room_type}超出边界")
                 return 0.0
         
-        # 3. 检查是否包含所有需要的房间类型 (S_n)
+        # 3. 检查已完成部分的房间比例
         required_room_types = set(self.constraints.keys())
         actual_room_types = set(room.room_type for room in layout.rooms)
-        if not required_room_types.issubset(actual_room_types):
-            return 0.0
+        completion_ratio = len(actual_room_types) / len(required_room_types)
+        
+        # 如果缺少房间，给出部分分数而不是0
+        if completion_ratio < 1.0:
+            missing_rooms = required_room_types - actual_room_types
+            print(f"布局不完整: 缺少以下房间 {missing_rooms}, 完成率: {completion_ratio:.2f}")
+            
+            # 至少放置了一半房间才给分
+            if completion_ratio >= 0.5:
+                return completion_ratio * 0.8  # 最多得到80%的分数
+            else:
+                return 0.1  # 很低但非零的分数
         
         return 1.0  # 所有硬约束都满足
     
