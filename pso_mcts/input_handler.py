@@ -75,7 +75,8 @@ class InputHandler:
                 boundary_info.get('height', 8000)
             )
         elif boundary_type == 'polygon':
-            vertices = [Point(x, y) for x, y in boundary_info.get('vertices', [])]
+            vertices_data = boundary_info.get('vertices', [])
+            vertices = [Point(x, y) for x, y in vertices_data]
             return Polygon(vertices)
         else:
             # 默认使用矩形边界

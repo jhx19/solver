@@ -1,7 +1,7 @@
 # layout_evaluator.py
 
 from typing import List, Dict, Tuple, Optional, Union, Set
-from geometry_utils import Rectangle, Point, Room, Layout, calculate_distance
+from geometry_utils import Rectangle, Polygon, Point, Room, Layout, calculate_distance
 from input_handler import Constraint
 
 class LayoutEvaluator:
@@ -192,10 +192,10 @@ class LayoutEvaluator:
     
     def _check_room_orientation(self, room: Room, orientation: str, layout: Layout) -> bool:
         """检查房间是否满足指定朝向。"""
-        # 简化处理：检查房间是否靠近对应朝向的外墙
-        boundary = layout.boundary
-        if isinstance(boundary, Rectangle):
+        # 根据边界类型分别处理
+        if isinstance(layout.boundary, Rectangle):
             rect = room.rectangle
+            boundary = layout.boundary
             tolerance = 300  # 允许误差300mm
             
             if orientation == 'north':
@@ -206,7 +206,28 @@ class LayoutEvaluator:
                 return abs(rect.y - boundary.y) < tolerance
             elif orientation == 'west':
                 return abs(rect.x - boundary.x) < tolerance
-        
+        elif isinstance(layout.boundary, Polygon):
+            # 对于多边形边界，采用坐标位置百分比判断朝向
+            rect = room.rectangle
+            boundary = layout.boundary
+            
+            # 计算房间中心点
+            center_x = rect.x + rect.width / 2
+            center_y = rect.y + rect.height / 2
+            
+            # 计算相对位置（百分比）
+            rel_x = (center_x - boundary.x) / boundary.width
+            rel_y = (center_y - boundary.y) / boundary.height
+            
+            if orientation == 'north':
+                return rel_y > 0.7  # 在边界上70%的位置
+            elif orientation == 'east':
+                return rel_x > 0.7  # 在边界右70%的位置
+            elif orientation == 'south':
+                return rel_y < 0.3  # 在边界下30%的位置
+            elif orientation == 'west':
+                return rel_x < 0.3  # 在边界左30%的位置
+            
         return False  # 不支持的朝向或边界类型
     
     def _evaluate_window(self, layout: Layout) -> float:

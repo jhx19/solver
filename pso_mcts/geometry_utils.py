@@ -69,6 +69,18 @@ class Polygon:
     """表示一个多边形，用顶点列表表示。"""
     def __init__(self, vertices: List[Point]):
         self.vertices = vertices
+        # 计算包围盒
+        self._compute_bounding_box()
+    
+    def _compute_bounding_box(self):
+        """计算多边形的包围盒（bounding box）"""
+        x_coords = [vertex.x for vertex in self.vertices]
+        y_coords = [vertex.y for vertex in self.vertices]
+        
+        self.x = min(x_coords)
+        self.y = min(y_coords)
+        self.width = max(x_coords) - min(x_coords)
+        self.height = max(y_coords) - min(y_coords)
     
     @property
     def area(self) -> float:
@@ -106,6 +118,14 @@ class Polygon:
     def contains_rectangle(self, rect: Rectangle) -> bool:
         """判断矩形是否完全在多边形内部。"""
         return all(self.contains_point(corner) for corner in rect.corners)
+    
+    def get_edges(self) -> List[Tuple[Point, Point]]:
+        """获取多边形的所有边"""
+        edges = []
+        for i in range(len(self.vertices)):
+            j = (i + 1) % len(self.vertices)
+            edges.append((self.vertices[i], self.vertices[j]))
+        return edges
     
     def __repr__(self):
         return f"Polygon(vertices={self.vertices})"
@@ -210,3 +230,24 @@ def get_adjacent_rectangles(rect1: Rectangle, rect2: Rectangle) -> bool:
 def calculate_distance(p1: Point, p2: Point) -> float:
     """计算两点之间的欧几里得距离。"""
     return np.sqrt((p1.x - p2.x) ** 2 + (p1.y - p2.y) ** 2)
+
+def generate_grid_points_in_boundary(boundary: Union[Rectangle, Polygon], size_modulus: float = 300.0) -> List[Tuple[float, float]]:
+    """在边界内生成网格点。"""
+    # 获取边界的范围
+    if isinstance(boundary, Rectangle):
+        min_x, min_y = boundary.x, boundary.y
+        max_x, max_y = boundary.x + boundary.width, boundary.y + boundary.height
+    else:  # Polygon
+        min_x, min_y = boundary.x, boundary.y
+        max_x, max_y = boundary.x + boundary.width, boundary.y + boundary.height
+    
+    # 生成网格点
+    points = []
+    for x in np.arange(min_x, max_x + 1, size_modulus):
+        for y in np.arange(min_y, max_y + 1, size_modulus):
+            point = Point(x, y)
+            # 检查点是否在边界内
+            if isinstance(boundary, Rectangle) or boundary.contains_point(point):
+                points.append((x, y))
+    
+    return points

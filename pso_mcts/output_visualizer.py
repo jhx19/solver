@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from matplotlib.figure import Figure
 from typing import List, Dict, Tuple, Optional, Union
-from geometry_utils import Point, Rectangle, Room, Layout
+from geometry_utils import Point, Rectangle, Polygon, Room, Layout
 from datetime import datetime
 import os
 
@@ -98,6 +98,14 @@ class OutputVisualizer:
                 linewidth=2, edgecolor='black', facecolor='none', alpha=0.8
             )
             ax.add_patch(boundary_rect)
+        elif isinstance(boundary, Polygon):
+            # 多边形边界
+            xs = [vertex.x for vertex in boundary.vertices]
+            ys = [vertex.y for vertex in boundary.vertices]
+            # 闭合多边形
+            xs.append(xs[0])
+            ys.append(ys[0])
+            ax.plot(xs, ys, linewidth=2, color='black', alpha=0.8)
         
         # 绘制房间
         for room in layout.rooms:
@@ -176,15 +184,24 @@ class OutputVisualizer:
         # 设置坐标轴比例相等
         ax.set_aspect('equal')
         
+        # 获取显示边界
+        if isinstance(boundary, Rectangle):
+            x_min = boundary.x
+            y_min = boundary.y
+            x_max = boundary.x + boundary.width
+            y_max = boundary.y + boundary.height
+        else:  # Polygon
+            x_coords = [vertex.x for vertex in boundary.vertices]
+            y_coords = [vertex.y for vertex in boundary.vertices]
+            x_min = min(x_coords)
+            y_min = min(y_coords)
+            x_max = max(x_coords)
+            y_max = max(y_coords)
+            
         # 设置坐标轴范围，增加一点边距
         margin = 500  # 500mm边距
-        x_min = boundary.x - margin if isinstance(boundary, Rectangle) else min(p.x for p in boundary.vertices) - margin
-        y_min = boundary.y - margin if isinstance(boundary, Rectangle) else min(p.y for p in boundary.vertices) - margin
-        x_max = (boundary.x + boundary.width + margin) if isinstance(boundary, Rectangle) else max(p.x for p in boundary.vertices) + margin
-        y_max = (boundary.y + boundary.height + margin) if isinstance(boundary, Rectangle) else max(p.y for p in boundary.vertices) + margin
-        
-        ax.set_xlim(x_min, x_max)
-        ax.set_ylim(y_min, y_max)
+        ax.set_xlim(x_min - margin, x_max + margin)
+        ax.set_ylim(y_min - margin, y_max + margin)
         
         # 设置标题
         plt.title(title)

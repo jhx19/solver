@@ -4,7 +4,7 @@ import math
 import random
 import numpy as np
 from typing import List, Dict, Tuple, Optional, Set, Union
-from geometry_utils import Point, Rectangle, Room, Layout
+from geometry_utils import Point, Rectangle, Polygon, Room, Layout, generate_grid_points_in_boundary
 from input_handler import Constraint
 
 class MCTSNode:
@@ -82,7 +82,7 @@ class MCTSNode:
 class MonteCarloTreeSearch:
     """蒙特卡洛树搜索算法，用于确定房间布局位置。"""
     def __init__(self,
-                 boundary: Rectangle,
+                 boundary: Union[Rectangle, Polygon],
                  room_sizes: List[Tuple[str, Rectangle]],
                  constraints: Dict[str, Constraint],
                  window_facades: List[Tuple[Point, Point]],
@@ -148,14 +148,22 @@ class MonteCarloTreeSearch:
         )
         
         # 确定入口房间的位置，使其靠近入口点
-        entrance_room_rect.x = max(0, min(
+        # 获取边界范围
+        if isinstance(self.boundary, Rectangle):
+            min_x, min_y = self.boundary.x, self.boundary.y
+            max_x, max_y = self.boundary.x + self.boundary.width, self.boundary.y + self.boundary.height
+        else:  # Polygon
+            min_x, min_y = self.boundary.x, self.boundary.y
+            max_x, max_y = self.boundary.x + self.boundary.width, self.boundary.y + self.boundary.height
+            
+        entrance_room_rect.x = max(min_x, min(
             self.entrance.x - entrance_room_rect.width / 2,
-            self.boundary.x + self.boundary.width - entrance_room_rect.width
+            max_x - entrance_room_rect.width
         ))
         
-        entrance_room_rect.y = max(0, min(
+        entrance_room_rect.y = max(min_y, min(
             self.entrance.y - entrance_room_rect.height / 2,
-            self.boundary.y + self.boundary.height - entrance_room_rect.height
+            max_y - entrance_room_rect.height
         ))
         
         # 创建第一个子节点
@@ -363,18 +371,19 @@ class MonteCarloTreeSearch:
             constraint = Constraint(room_type=next_room_type)
         
         # 创建可能位置的网格点（按尺寸模数对齐）
-        grid_positions = []
-        for x in range(int(self.boundary.x), 
-                     int(self.boundary.x + self.boundary.width - next_room_rect.width) + 1, 
-                     int(self.size_modulus)):
-            for y in range(int(self.boundary.y), 
-                         int(self.boundary.y + self.boundary.height - next_room_rect.height) + 1, 
-                         int(self.size_modulus)):
-                grid_positions.append((x, y))
+        grid_positions = generate_grid_points_in_boundary(self.boundary, self.size_modulus)
         
         # 应用剪枝规则，筛选有效位置
         valid_positions = []
         for x, y in grid_positions:
+            # 检查房间是否能放在(x,y)位置
+            if x + next_room_rect.width > self.boundary.x + self.boundary.width:
+                continue
+                
+            if y + next_room_rect.height > self.boundary.y + self.boundary.height:
+                continue
+                
+            # 创建临时房间进行检查
             temp_rect = Rectangle(x, y, next_room_rect.width, next_room_rect.height)
             temp_room = Room(next_room_type, temp_rect)
             
@@ -423,10 +432,15 @@ class MonteCarloTreeSearch:
     
     def _is_inside_boundary(self, rect: Rectangle) -> bool:
         """检查矩形是否在边界内。"""
-        return (self.boundary.x <= rect.x and
-                self.boundary.y <= rect.y and
-                rect.x + rect.width <= self.boundary.x + self.boundary.width and
-                rect.y + rect.height <= self.boundary.y + self.boundary.height)
+        if isinstance(self.boundary, Rectangle):
+            return (self.boundary.x <= rect.x and
+                    self.boundary.y <= rect.y and
+                    rect.x + rect.width <= self.boundary.x + self.boundary.width and
+                    rect.y + rect.height <= self.boundary.y + self.boundary.height)
+        elif isinstance(self.boundary, Polygon):
+            return self.boundary.contains_rectangle(rect)
+        else:
+            return False
     
     def _has_overlap(self, rect1: Rectangle, rect2: Rectangle) -> bool:
         """检查两个矩形是否重叠。"""
@@ -460,19 +474,38 @@ class MonteCarloTreeSearch:
         """检查房间是否满足朝向要求。"""
         # 判断房间是否靠近对应朝向的边界
         rect = room.rectangle
-        boundary = self.boundary
         tolerance = self.size_modulus  # 允许误差
         
-        if orientation == 'north':
-            return abs(rect.y + rect.height - (boundary.y + boundary.height)) < tolerance
-        elif orientation == 'east':
-            return abs(rect.x + rect.width - (boundary.x + boundary.width)) < tolerance
-        elif orientation == 'south':
-            return abs(rect.y - boundary.y) < tolerance
-        elif orientation == 'west':
-            return abs(rect.x - boundary.x) < tolerance
+        if isinstance(self.boundary, Rectangle):
+            boundary = self.boundary
+            
+            if orientation == 'north':
+                return abs(rect.y + rect.height - (boundary.y + boundary.height)) < tolerance
+            elif orientation == 'east':
+                return abs(rect.x + rect.width - (boundary.x + boundary.width)) < tolerance
+            elif orientation == 'south':
+                return abs(rect.y - boundary.y) < tolerance
+            elif orientation == 'west':
+                return abs(rect.x - boundary.x) < tolerance
+        elif isinstance(self.boundary, Polygon):
+            # 对于多边形边界，检查房间是否靠近特定方向的边
+            # 简化处理：检查房间的中心点是否靠近边界的特定方向区域
+            center_x = rect.x + rect.width / 2
+            center_y = rect.y + rect.height / 2
+            
+            # 获取多边形的包围盒
+            boundary = self.boundary
+            
+            if orientation == 'north':
+                return center_y > boundary.y + boundary.height * 0.7
+            elif orientation == 'east':
+                return center_x > boundary.x + boundary.width * 0.7
+            elif orientation == 'south':
+                return center_y < boundary.y + boundary.height * 0.3
+            elif orientation == 'west':
+                return center_x < boundary.x + boundary.width * 0.3
         
-        # 未知朝向
+        # 未知朝向或边界类型
         return True
     
     def _check_window_access(self, room: Room) -> bool:
@@ -493,39 +526,3 @@ class MonteCarloTreeSearch:
                     return True
         
         return False
-    
-    def _edges_are_close(self, edge1: Tuple[Point, Point], edge2: Tuple[Point, Point]) -> bool:
-        """
-        检查两条边是否靠近，用于判断房间是否满足开窗条件。
-        
-        Args:
-            edge1: 第一条边，表示为(Point, Point)
-            edge2: 第二条边，表示为(Point, Point)
-            
-        Returns:
-            两边是否靠近
-        """
-        # 计算边的中点
-        mid1_x = (edge1[0].x + edge1[1].x) / 2
-        mid1_y = (edge1[0].y + edge1[1].y) / 2
-        mid2_x = (edge2[0].x + edge2[1].x) / 2
-        mid2_y = (edge2[0].y + edge2[1].y) / 2
-        
-        # 计算中点距离
-        dist = math.sqrt((mid1_x - mid2_x) ** 2 + (mid1_y - mid2_y) ** 2)
-        
-        # 距离小于阈值则认为靠近
-        return dist < self.size_modulus
-    
-    def _get_best_layout(self) -> Layout:
-        """获取搜索得到的最佳布局，选择访问次数最多的路径。"""
-        rooms = []
-        current = self.root
-        
-        # 从根节点开始，每次选择访问次数最多的子节点
-        while current.children:
-            current = max(current.children, key=lambda c: c.visits)
-            rooms.append(Room(current.room_type, current.room_rect))
-        
-        # 创建布局
-        return Layout(rooms, self.boundary)

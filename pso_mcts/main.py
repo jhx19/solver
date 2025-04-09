@@ -6,7 +6,7 @@ import time
 import os
 from typing import Dict, List, Tuple, Optional
 
-from geometry_utils import Point, Rectangle, Room, Layout
+from geometry_utils import Point, Rectangle, Polygon, Room, Layout, generate_grid_points_in_boundary
 from input_handler import InputHandler, Constraint
 from layout_evaluator import LayoutEvaluator
 from pso import ParticleSwarmOptimization
@@ -88,7 +88,11 @@ def run_floor_layout_generation(
     room_types = input_handler.get_room_types()
     
     if verbose:
-        print(f"边界尺寸: {boundary.width/1000}m x {boundary.height/1000}m")
+        if isinstance(boundary, Rectangle):
+            print(f"边界尺寸: {boundary.width/1000}m x {boundary.height/1000}m")
+        else:  # Polygon
+            print(f"多边形边界: {len(boundary.vertices)}个顶点")
+            print(f"包围盒尺寸: {boundary.width/1000}m x {boundary.height/1000}m")
         print(f"房间数量: {len(room_types)}")
         print(f"房间类型: {', '.join(room_types)}")
     
@@ -109,7 +113,10 @@ def run_floor_layout_generation(
         rooms = []
         
         # 尝试基本布局：从边界左下角开始依次摆放
-        x, y = boundary.x, boundary.y
+        if isinstance(boundary, Rectangle):
+            x, y = boundary.x, boundary.y
+        else:  # Polygon
+            x, y = boundary.x, boundary.y
         
         for room_type, rect in room_sizes:
             # 如果当前行放不下，换到下一行
@@ -123,6 +130,11 @@ def run_floor_layout_generation(
             
             # 创建房间并添加到列表
             temp_rect = Rectangle(x, y, rect.width, rect.height)
+            
+            # 检查是否在多边形边界内
+            if isinstance(boundary, Polygon) and not boundary.contains_rectangle(temp_rect):
+                return 0.0  # 房间超出多边形边界，返回零分
+            
             rooms.append(Room(room_type, temp_rect))
             
             # 更新x坐标
@@ -219,14 +231,14 @@ def parse_arguments():
     parser.add_argument(
         "--constraint_file", 
         type=str, 
-        default="input_examples\constraints_example.json",
+        default="input_examples/constraints_example.json",
         help="约束条件文件路径"
     )
     
     parser.add_argument(
         "--boundary_file", 
         type=str, 
-        default="input_examples\polygon_boundary.json",
+        default="input_examples/polygon_boundary.json",
         help="户型边界信息文件路径"
     )
     
